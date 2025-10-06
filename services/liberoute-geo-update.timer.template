@@ -1,0 +1,11 @@
+[Unit]
+Description=Liberoute: Run GeoIP Updater Weekly
+
+[Timer]
+OnCalendar=weekly
+RandomizedDelaySec=6h
+Persistent=true
+Unit=liberoute-geo-update.service
+
+[Install]
+WantedBy=timers.target

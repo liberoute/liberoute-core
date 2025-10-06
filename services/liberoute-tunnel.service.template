@@ -1,0 +1,18 @@
+[Unit]
+Description=Liberoute: Tunneling and Routing Service
+After=liberoute-connection.service
+Wants=liberoute-connection.service
+
+[Service]
+Type=simple
+ExecStartPre=/bin/bash -c '__FIREJAIL_PATH__ --shutdown=tun0 2>/dev/null || true'
+ExecStart=__SCRIPTS_DIR__/lib/core/tunnel.sh
+ExecStopPost=/bin/bash -c '__FIREJAIL_PATH__ --shutdown=tun0 2>/dev/null || true'
+WorkingDirectory=__SCRIPTS_DIR__
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:__SCRIPTS_DIR__/logs/tunnel.service.log
+StandardError=append:__SCRIPTS_DIR__/logs/tunnel.service.err
+
+[Install]
+WantedBy=multi-user.target

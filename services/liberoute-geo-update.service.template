@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly GeoIP Update Service
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=__LINK_PATH__ update geo
+WorkingDirectory=__SCRIPTS_DIR__
+
+[Install]
+WantedBy=multi-user.target

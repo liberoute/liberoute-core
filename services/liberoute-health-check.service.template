@@ -1,0 +1,8 @@
+[Unit]
+Description=Liberoute: Connection Health Check
+After=liberoute-tunnel.service
+
+[Service]
+Type=oneshot
+ExecStart=__SCRIPTS_DIR__/lib/system/health_check.sh
+WorkingDirectory=__SCRIPTS_DIR__

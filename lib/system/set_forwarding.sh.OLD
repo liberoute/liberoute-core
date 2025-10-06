@@ -1,0 +1,19 @@
+# FILE: /root/liberoute/lib/system/set_forwarding.sh
+#!/bin/bash
+set -e
+
+echo "🔁 Enabling IP forwarding (IPv4 + IPv6)..."
+
+# IPv4
+if echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null; then
+  echo "✅ IPv4 forwarding enabled."
+else
+  echo "⚠️ Warning: Could not enable IPv4 forwarding — possibly read-only (/proc/sys)"
+fi
+
+# IPv6
+if echo 1 > /proc/sys/net/ipv6/conf/all/forwarding 2>/dev/null; then
+  echo "✅ IPv6 forwarding enabled."
+else
+  echo "⚠️ Warning: Could not enable IPv6 forwarding — possibly read-only (/proc/sys)"
+fi

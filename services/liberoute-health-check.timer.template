@@ -1,0 +1,10 @@
+[Unit]
+Description=Liberoute: Run Health Check Timer
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=liberoute-health-check.service
+
+[Install]
+WantedBy=timers.target

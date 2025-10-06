@@ -1,0 +1,13 @@
+#!/bin/bash
+
+_liberoute_completions()
+{
+  COMPREPLY=()
+  local cur prev opts
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  opts="start stop restart enable disable select add delete group list sub update help"
+
+  COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+}
+
+complete -F _liberoute_completions liberoute

@@ -1,0 +1,16 @@
+[Unit]
+Description=Liberoute: Core Connection Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=__SCRIPTS_DIR__/lib/core/connection.sh
+WorkingDirectory=__SCRIPTS_DIR__
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:__SCRIPTS_DIR__/logs/connection.service.log
+StandardError=append:__SCRIPTS_DIR__/logs/connection.service.err
+
+[Install]
+WantedBy=multi-user.target

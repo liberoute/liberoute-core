@@ -1,0 +1,145 @@
+#!/bin/bash
+set -e
+
+# Load environment
+ENV_PATH="$(dirname "$0")/../../.env"
+source "$ENV_PATH"
+
+# Fetch latest IP lists first
+#"$LIB_DIR/system/whitelist_fetch.sh"
+
+# Ensure log directory and redirect output
+mkdir -p "$LOG_DIR"
+exec >> "$WHITELIST_LOG_FILE" 2>&1
+set -x
+
+# Parse CLI args
+for arg in "$@"; do
+  case $arg in
+    --gateway=*) def_gate="${arg#*=}" ;;
+    --net=*) eth="${arg#*=}" ;;
+  esac
+done
+
+# Sanity check
+[ -z "$def_gate" ] && echo "❌ ERROR: Missing --gateway= argument" && exit 1
+[ -z "$eth" ] && echo "❌ ERROR: Missing --net= argument" && exit 1
+
+# Load ip6tables module just in case
+modprobe ip6_tables 2>/dev/null || true
+
+# Apply whitelist for each country
+IFS=',' read -ra COUNTRY_CODES <<< "$WHITELIST_COUNTRIES"
+for CODE in "${COUNTRY_CODES[@]}"; do
+  # Get latest IPv4 list
+  IPV4_FILE=$(ls -1 "$IPS_DIR"/ipv4_"$CODE"_*.txt 2>/dev/null | sort -r | head -n1)
+  if [ -f "$IPV4_FILE" ]; then
+    SET4_NAME="${CODE}-whitelist"
+    ipset destroy "$SET4_NAME" 2>/dev/null || true
+    ipset create "$SET4_NAME" hash:net
+
+    while read -r ip; do
+      [[ "$ip" =~ ^#.*$ || -z "$ip" ]] && continue
+      [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(/([0-9]{1,2}))?$ ]] || continue
+      ipset add "$SET4_NAME" "$ip"
+    done < "$IPV4_FILE"
+
+    $IPTABLES -t nat -A PREROUTING -i "$eth" -m set --match-set "$SET4_NAME" dst -j RETURN
+    $IPTABLES -A FORWARD -m set --match-set "$SET4_NAME" dst -j ACCEPT
+    $IPTABLES -t nat -A OUTPUT -m set --match-set "$SET4_NAME" dst -j RETURN
+
+    echo ""
+    echo "📦 IPv4 Whitelist Applied for $CODE"
+    echo "📁 Source:  $IPV4_FILE"
+    echo "🌐 Gateway: $def_gate"
+    echo "🌍 Interface: $eth"
+    echo "🕒 Timestamp: $(date)"
+  else
+    echo "⚠️  No IPv4 list found for country: $CODE"
+  fi
+
+  # Get latest IPv6 list
+  IPV6_FILE=$(ls -1 "$IPS_DIR"/ipv6_"$CODE"_*.txt 2>/dev/null | sort -r | head -n1)
+  if [ -f "$IPV6_FILE" ]; then
+    SET6_NAME="${CODE}-whitelist6"
+    ipset destroy "$SET6_NAME" 2>/dev/null || true
+    ipset create "$SET6_NAME" hash:net family inet6
+
+    while read -r ip; do
+      [[ "$ip" =~ ^#.*$ || -z "$ip" ]] && continue
+      [[ "$ip" =~ ^[0-9a-fA-F:]+(/[0-9]{1,3})?$ ]] || continue
+      ipset add "$SET6_NAME" "$ip"
+    done < "$IPV6_FILE"
+
+    $IP6TABLES -A FORWARD -m set --match-set "$SET6_NAME" dst -j ACCEPT
+    $IP6TABLES -t nat -A OUTPUT -m set --match-set "$SET6_NAME" dst -j RETURN
+
+    echo ""
+    echo "📦 IPv6 Whitelist Applied for $CODE"
+    echo "📁 Source:  $IPV6_FILE"
+  else
+    echo "⚠️  No IPv6 list found for country: $CODE"
+  fi
+done
+
+
+# ⬛ CUSTOM WHITELIST
+CUSTOM_FILE="$IPS_DIR/custom.txt"
+if [ -f "$CUSTOM_FILE" ]; then
+  SET_CUSTOM="custom-whitelist"
+  ipset destroy "$SET_CUSTOM" 2>/dev/null || true
+  ipset create "$SET_CUSTOM" hash:net
+
+  while read -r ip; do
+    [[ "$ip" =~ ^#.*$ || -z "$ip" ]] && continue
+    [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(/([0-9]{1,2}))?$ ]] || continue
+    ipset add "$SET_CUSTOM" "$ip"
+  done < "$CUSTOM_FILE"
+
+  $IPTABLES -t nat -A PREROUTING -i "$eth" -m set --match-set "$SET_CUSTOM" dst -j RETURN
+  $IPTABLES -A FORWARD -m set --match-set "$SET_CUSTOM" dst -j ACCEPT
+  $IPTABLES -t nat -A OUTPUT -m set --match-set "$SET_CUSTOM" dst -j RETURN
+
+  echo ""
+  echo "📦 Custom Whitelist Applied"
+  echo "📁 Source: $CUSTOM_FILE"
+  echo "🕒 Timestamp: $(date)"
+else
+  echo "⚠️  No custom.txt found at $CUSTOM_FILE"
+fi
+
+cf_trace_route() {
+  echo "🌐 Configuring direct route for cdn-cgi/trace..."
+
+  ipset destroy cf-whitelist 2>/dev/null || true
+  ipset create cf-whitelist hash:ip
+
+  CF_TRACE_DOMAINS=(
+	www.cloudflare.com
+	ip-api.com
+  )
+  CF_TRACE_IPS=()
+
+  for domain in "${CF_TRACE_DOMAINS[@]}"; do
+    IPs=$(dig +short "$domain" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
+    for ip in $IPs; do
+      CF_TRACE_IPS+=("$ip")
+    done
+  done
+
+  for ip in "${CF_TRACE_IPS[@]}"; do
+    ipset add cf-whitelist "$ip"
+    ip rule add to "$ip" lookup main
+    ip route add "$ip" via "$TUN_GATEWAY" dev "$eth" table main
+    echo "📍 Routed $ip outside VPN"
+  done
+
+  # NAT bypass
+  $IPTABLES -t nat -A PREROUTING -i "$eth" -m set --match-set cf-whitelist dst -j RETURN
+  $IPTABLES -A FORWARD -m set --match-set cf-whitelist dst -j ACCEPT
+  $IPTABLES -t nat -A OUTPUT -m set --match-set cf-whitelist dst -j RETURN
+
+  echo "✅ Cloudflare trace IPs routed directly via cf-whitelist"
+}
+
+cf_trace_route
