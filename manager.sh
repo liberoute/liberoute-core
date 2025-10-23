@@ -281,23 +281,59 @@ case "$COMMAND" in
         bash "$LIB_DIR/profile/link_selector.sh" "$GROUP"
         ;;
     install)
+
         _check_root
+
         echo "🚀 Starting $PROJECT_NAME installation..."
+
         if [ ! -f "$ENV_DIST_FILE" ]; then echo "❌ CRITICAL: '.env.dist' template file is missing." >&2; exit 1; fi
         if [ ! -f "$ENV_FILE" ]; then
             echo "  -> No .env file found. Creating one from template..."
             cp "$ENV_DIST_FILE" "$ENV_FILE"
         fi
+
         echo "🔧 Verifying configuration paths..."
         sed -i "s|__ABSOLUTE_PATH_TO_SCRIPTS__|$SCRIPTS_DIR|g" "$ENV_FILE"
+
         _merge_env_files
         _handle_dependencies
 	_enable_sysctl_forwarding
+
+        # --- auto-fetch country IP lists if missing -------------------------
+        echo "🌍 Checking country IP lists..."
+        [ -f .env ] && set -a && . ./.env && set +a
+
+        COUNTRIES="${WHITELIST_COUNTRIES:-${COUNTRY_CODE:-ir}}"
+        # resolve dynamic data dir
+        DATA_DIR="${DATA_DIR:-$(pwd)/data}"
+        DEST_DIR="${WHITELIST_DIR:-${LIBEROUTE_IPS_DIR:-${DATA_DIR%/}/ips}}"
+        mkdir -p "$DEST_DIR"
+
+        need_fetch=false
+        IFS=',' read -r -a cc_list <<<"$(echo "$COUNTRIES" | tr -d ' ' | tr '[:upper:]' '[:lower:]')"
+        for cc in "${cc_list[@]}"; do
+            v4=$(ls "$DEST_DIR/ipv4_${cc}_"*.txt 2>/dev/null | head -n1 || true)
+            if [[ -z "$v4" || ! -s "$v4" || -z "$(grep -m1 -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/' "$v4" 2>/dev/null)" ]]; then
+                need_fetch=true
+                break
+            fi
+        done
+
+        if $need_fetch; then
+            echo "  -> Fetching missing IP lists..."
+            bash "$LIB_DIR/system/whitelist_fetch.sh" || \
+                echo "  ⚠️  Could not fetch IP lists; continuing with cached data."
+        else
+            echo "  -> Country IP lists already present."
+        fi
+        # --- end auto-fetch block ------------------------------------------
+
         bash "$LIB_DIR/system/asset_downloader.sh"
         _install_services
         _install_symlink_and_completion
         systemctl daemon-reload
         echo "✅ Installation complete. Run 'sudo $LINK_NAME enable' to enable services."
+
         ;;
     uninstall)
         _perform_uninstall
