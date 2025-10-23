@@ -16,13 +16,16 @@ for cmd in "${REQUIRED_COMMANDS[@]}"; do
         case "$cmd" in
             jq) MISSING_PACKAGES+=("jq") ;;
             curl) MISSING_PACKAGES+=("curl") ;;
-            firejail) MISSING_PACKAGES+=("firejail") ;;
+            firejail) MISSING_PACKAGES+=("firejail firetools") ;;
+            dnsmasq)MISSING_PACKAGES+=("dnsmasq") ;;
             ipset) MISSING_PACKAGES+=("ipset") ;;
             iptables) MISSING_PACKAGES+=("iptables") ;;
             ip6tables) MISSING_PACKAGES+=("iptables") ;;
-            danted) MISSING_PACKAGES+=("dante-server") ;; # Package name is dante-server
-            privoxy) MISSING_PACKAGES+=("privoxy") ;;
+            unzip) MISSING_PACKAGES+=("unzip") ;;
+            #danted) MISSING_PACKAGES+=("dante-server") ;; # Package name is dante-server
+            #privoxy) MISSING_PACKAGES+=("privoxy") ;;
             sing-box) MISSING_PACKAGES+=("(manual install needed for sing-box)") ;;
+            dns2socks) MISSING_PACKAGES+=("(manual install needed for dns2socks)") ;;
         esac
     fi
 done
