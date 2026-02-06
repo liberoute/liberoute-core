@@ -16,6 +16,19 @@ ENV_PATH="$PROJECT_ROOT/.env"
 # shellcheck disable=SC1090
 source "$ENV_PATH"
 
+# ====== Check if CORE is set to xray and delegate ======
+if [ "${CORE:-}" = "xray" ] || [ "${CORE:-}" = "v2ray" ]; then
+    XRAY_GENERATOR="$SCRIPT_DIR_HELPER/config_generator_xray.sh"
+    if [ -f "$XRAY_GENERATOR" ]; then
+        echo "🔄 CORE=$CORE detected. Delegating to config_generator_xray.sh..." >&2
+        exec bash "$XRAY_GENERATOR" "$@"
+    else
+        echo "⚠️  WARNING: CORE=$CORE but config_generator_xray.sh not found. Falling back to sing-box." >&2
+    fi
+fi
+# ====== Continue with sing-box generation ======
+
+
 FINAL_LINK="${1:-}"
 [ -z "$FINAL_LINK" ] && { echo "❌ ERROR: No link provided to config generator."; exit 1; }
 

@@ -38,6 +38,38 @@ else
   INBOUNDS_JSON="$DEFAULT_INBOUNDS"
 fi
 
+# Convert sing-box inbounds format to Xray/V2Ray format
+convert_inbounds_to_xray() {
+  echo "$1" | jq -c 'map(
+    if .type == "mixed" then
+      {
+        protocol: "socks",
+        listen: .listen,
+        port: .listen_port,
+        tag: .tag,
+        settings: { udp: true }
+      }
+    elif .type == "socks" then
+      {
+        protocol: "socks",
+        listen: .listen,
+        port: .listen_port,
+        tag: .tag,
+        settings: { udp: true }
+      }
+    elif .type == "http" then
+      {
+        protocol: "http",
+        listen: .listen,
+        port: .listen_port,
+        tag: .tag
+      }
+    else . end
+  )'
+}
+
+INBOUNDS_JSON=$(convert_inbounds_to_xray "$INBOUNDS_JSON")
+
 # --- Helpers ---
 urldecode() { local data="${1//+/ }"; printf '%b' "${data//%/\\x}"; }
 
@@ -104,12 +136,14 @@ elif [[ "$SCHEME" == "vless" ]]; then
   # prefer serviceName for grpc, else path
   PATHV="${Q[path]:-${Q[serviceName]:-}}"
   SNI="${Q[sni]:-${Q[host]:-}}"
+  HEADER_TYPE="${Q[headerType]:-}"
 
   jq -n \
     --arg add "$ADD" \
     --argjson port "$(printf '%s' "$PORT" | sed 's/[^0-9]//g')" \
     --arg id "$USER" \
     --arg type "${Q[type]:-}" \
+    --arg headerType "$HEADER_TYPE" \
     --arg host "${Q[host]:-}" \
     --arg path "${PATHV:-}" \
     --arg security "${Q[security]:-}" \
@@ -124,6 +158,7 @@ elif [[ "$SCHEME" == "vless" ]]; then
       port: ($port|tonumber),
       id: $id,
       type: ($type // ""),
+      headerType: ($headerType // ""),
       host: ($host // ""),
       path: (if ($type//"")=="grpc" then ($path // "") else ($path // "/") end),
       security: ($security // ""),   # tls | reality | ...
@@ -141,10 +176,13 @@ fi
 
 # --- Build final JSON (Xray/V2Ray) in jq ---
 # We pass INBOUNDS_JSON via --argjson to avoid quoting issues.
+# --- Create temp file for config ---
+TEMP_CONFIG_FILE=$(mktemp --suffix=.json)
 jq \
   --arg core "$CORE" \
   --argjson inbounds "$INBOUNDS_JSON" \
-  -c -f /dev/stdin "$TMP_NORM" <<'JQ'
+  -c -f /dev/stdin "$TMP_NORM" > "$TEMP_CONFIG_FILE" <<'JQ'
+
   # Read normalized record
   . as $d
   |
@@ -153,7 +191,7 @@ jq \
   |
   # Build streamSettings based on transport + security
   def tls_sec:
-    ( if ($d.security? // $d.tls? // "") == "tls" or ($d.sni // "") != "" then "tls" else "none" end );
+    ( if ($d.security? // $d.tls? // "") == "tls" then "tls" else "none" end );
 
   def ws_stream:
     {
@@ -174,8 +212,16 @@ jq \
         header: {
           type: "http",
           request: {
+            version: "1.1",
+            method: "GET",
             path: [($d.path // "/")],
-            headers: (if ($d.host // "") != "" then { Host: [ $d.host ] } else {} end)
+            headers: {
+              Host: (if ($d.host // "") != "" then [ $d.host ] else [] end),
+              "User-Agent": [],
+              "Accept-Encoding": ["gzip, deflate"],
+              "Connection": ["keep-alive"],
+              "Pragma": "no-cache"
+            }
           }
         }
       }
@@ -198,7 +244,7 @@ jq \
 
   # Choose stream
   ( if $net == "ws" then ws_stream
-    elif $net == "http" then http_obfs_stream
+    elif $net == "http" or ($net == "tcp" and ($d.headerType // "") == "http") then http_obfs_stream
     elif $net == "grpc" then grpc_stream
     else tcp_stream end
   ) as $stream
@@ -266,3 +312,4 @@ jq \
     outbounds: [ $outbound2 ]
   }
 JQ
+echo "$TEMP_CONFIG_FILE"
